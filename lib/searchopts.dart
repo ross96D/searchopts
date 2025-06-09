@@ -1,6 +1,8 @@
 library searchopts;
+import 'dart:math';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:fuzzy_string/fuzzy_string.dart';
 
@@ -91,7 +93,12 @@ class SearchOptions<T extends Object> extends StatefulWidget {
 }
 
 class _SearchOptionsState<T extends Object> extends State<SearchOptions<T>> {
+  late List<GlobalKey> keys;
+  GlobalKey? currentHighlightKey;
+  double? itemHeight;
+
   ValueNotifier<int> highlighted = ValueNotifier(0);
+  final ScrollController scrollController = ScrollController();
 
   late List<Option<T>> filtered;
 
@@ -106,6 +113,7 @@ class _SearchOptionsState<T extends Object> extends State<SearchOptions<T>> {
   void initState() {
     super.initState();
 
+    keys = List.generate(widget.options.length, (index) => GlobalKey());
     filtered = widget.options;
 
     shortcuts = <ShortcutActivator, Intent>{
@@ -126,20 +134,63 @@ class _SearchOptionsState<T extends Object> extends State<SearchOptions<T>> {
     };
   }
 
-  void updateHighlight(int newIndex) {
-    if (filtered.isNotEmpty) {
-      highlighted.value = newIndex % filtered.length;
-    } else {
+  @override
+  void dispose() {
+    highlighted.dispose();
+    scrollController.dispose();
+    super.dispose();
+  }
+
+  bool _isItemVisible(int index) {
+    assert(itemHeight != null);
+
+    final viwportDimension = scrollController.position.viewportDimension;
+    final pos = index * itemHeight!;
+    return scrollController.offset < pos && pos < scrollController.offset + viwportDimension;
+  }
+
+  void _scrollTo(int index, ScrollDirection direction) {
+    assert(itemHeight != null);
+
+    if (_isItemVisible(index)) {
+      return;
+    }
+    switch (direction) {
+      case ScrollDirection.idle:
+        throw UnimplementedError("ScrollDirection.idle behaiviour is not implented");
+      case ScrollDirection.forward:
+        /// Use index + 1 because if not than scrolling does not get to the item
+        scrollController.jumpTo(max((index + 1) * itemHeight! - scrollController.position.viewportDimension, 0));
+      case ScrollDirection.reverse:
+        scrollController.jumpTo( index * itemHeight!);
+    }
+  }
+
+  void updateHighlight(int newIndex, ScrollDirection direction) {
+    if (filtered.isEmpty) {
       highlighted.value = 0;
+      return;
+    }
+    highlighted.value = newIndex % filtered.length;
+    if (itemHeight != null) {
+      _scrollTo(highlighted.value, direction);
     }
   }
 
   void highlightPreviousOption(SearchPreviousOptionIntent intent) {
-    updateHighlight(highlighted.value - 1);
+    // if its the first item change the scrolling direction to avoid weird jumps animations
+    return switch (highlighted.value) {
+      0 => updateHighlight(highlighted.value - 1, ScrollDirection.forward),
+      _ => updateHighlight(highlighted.value - 1, ScrollDirection.reverse),
+    };
   }
 
   void highlightNextOption(SearchNextOptionIntent intent) {
-    updateHighlight(highlighted.value + 1);
+    // if its the last item change the scrolling direction to avoid weird jumps animations
+    return switch(highlighted.value == filtered.length - 1) {
+      true => updateHighlight(highlighted.value + 1, ScrollDirection.reverse),
+      false => updateHighlight(highlighted.value + 1, ScrollDirection.forward),
+    };
   }
 
   void selectOption(SearchSelectOptionIntent intent) {
@@ -158,7 +209,7 @@ class _SearchOptionsState<T extends Object> extends State<SearchOptions<T>> {
     scores.sort((a, b) => b.$2.compareTo(a.$2));
 
     setState(() => filtered = scores.map((e) => e.$1).toList());
-    updateHighlight(highlighted.value);
+    updateHighlight(highlighted.value, ScrollDirection.forward);
   }
 
   @override
@@ -180,18 +231,29 @@ class _SearchOptionsState<T extends Object> extends State<SearchOptions<T>> {
                 listenable: highlighted,
                 builder: (context, _) {
                   return ListView.builder(
+                    controller: scrollController,
                     itemCount: filtered.length,
-                    prototypeItem: widget.prototypeItem ??
-                        widget.renderOption(
-                          context,
-                          widget.options.first.object,
-                          const SearchOptionsRenderConfig(isHighlighted: false),
-                        ),
-                    itemBuilder: (context, index) => widget.renderOption(
-                      context,
-                      filtered[index].object,
-                      SearchOptionsRenderConfig(isHighlighted: highlighted.value == index),
+                    prototypeItem: _GetSizeWidget(
+                      child: widget.prototypeItem ??
+                          widget.renderOption(
+                            context,
+                            widget.options.first.object,
+                            const SearchOptionsRenderConfig(isHighlighted: false),
+                          ),
+                      onSize: (v) => itemHeight = v.height,
                     ),
+                    itemBuilder: (context, index) {
+                      final isHighlighted = highlighted.value == index;
+                      final child = widget.renderOption(
+                        context,
+                        filtered[index].object,
+                        SearchOptionsRenderConfig(isHighlighted: isHighlighted),
+                      );
+                      if (isHighlighted) {
+                        currentHighlightKey = keys[index];
+                      }
+                      return KeyedSubtree(key: keys[index], child: child);
+                    },
                   );
                 },
               ),
@@ -200,5 +262,35 @@ class _SearchOptionsState<T extends Object> extends State<SearchOptions<T>> {
         ),
       ),
     );
+  }
+}
+
+// Helper widget to measure prototype size
+class _GetSizeWidget extends SingleChildRenderObjectWidget {
+  final void Function(Size) onSize;
+
+  const _GetSizeWidget({
+    required super.child,
+    required this.onSize,
+  });
+
+  @override
+  RenderObject createRenderObject(BuildContext context) {
+    return _RenderItemSizer(onSize: onSize);
+  }
+}
+
+class _RenderItemSizer extends RenderProxyBox {
+  final void Function(Size) onSize;
+
+  _RenderItemSizer({required this.onSize});
+
+  @override
+  void performLayout() {
+    super.performLayout();
+    // Notify parent when size is determined
+    if (hasSize) {
+      onSize(size);
+    }
   }
 }
