@@ -1,0 +1,20 @@
+name: searchopts
+description: Widget that allow to fuzzy search/filter through options and select focusing on desktop shortcuts behavior.
+version: 0.0.1
+repository: https://github.com/ross96D/searchopts
+homepage:
+
+environment:
+  sdk: ">=3.0.0 <4.0.0"
+  flutter: ">=3.3.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  plugin_platform_interface: ^2.0.2
+  fuzzy_string: ^1.0.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^2.0.0
