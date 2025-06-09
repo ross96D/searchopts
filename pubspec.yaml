@@ -1,6 +1,6 @@
 name: searchopts
 description: Widget that allow to fuzzy search/filter through options and select focusing on desktop shortcuts behavior.
-version: 0.0.1
+version: 0.0.2
 repository: https://github.com/ross96D/searchopts
 homepage:
 
